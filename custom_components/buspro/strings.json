@@ -2,37 +2,37 @@
   "config": {
     "step": {
       "user": {
-        "title": "Buspro Gateway Configuration",
-        "description": "Found {found_gateways} potential Buspro gateways on your network. Please select one. If your gateway wasn't found, please ensure it's connected to the network and try again, or enter its details manually.",
+        "title": "HDL Buspro Gateway Discovery",
+        "description": "Found {found_gateways} HDL Buspro gateways on your network. Please select one, or enter gateway details manually if yours wasn't found.",
         "data": {
           "gateway": "Select Discovered Gateway",
-          "host": "Host IP address (if not auto-discovered)",
-          "port": "Port number (usually 6000 or 6001)"
+          "host": "Gateway IP Address (if not discovered)",
+          "port": "Port (6000 or 6001)"
         }
       },
       "discovery": {
-        "title": "Discovered Buspro Devices",
-        "description": "Found {discovered_count} devices connected to the gateway at {gateway_host}:{gateway_port}. Select the devices you want to add to Home Assistant.",
+        "title": "HDL Buspro Device Discovery",
+        "description": "Found {discovered_count} HDL devices on gateway {gateway_host}:{gateway_port}. Please select the devices you want to add to Home Assistant.",
         "data": {
-          "selected_devices": "Select Devices to Add"
+          "selected_devices": "Select Devices"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect or discover devices from the selected gateway. Please check if it's online, reachable, and responding correctly.",
-      "unknown": "An unexpected error occurred during setup.",
-      "discovery_failed": "Failed to discover devices from the gateway. Please check the connection.",
+      "cannot_connect": "Failed to connect to the HDL Buspro gateway. Please verify it's online and the IP/port are correct.",
+      "unknown": "Unexpected error occurred during setup.",
+      "discovery_failed": "Failed to discover HDL devices. Please check gateway connection.",
       "no_devices_selected": "Please select at least one device to add."
     },
     "abort": {
-      "already_configured": "This Buspro gateway ({host}:{port}) is already configured.",
-      "no_devices_found": "No controllable devices were found connected to this gateway.",
-      "no_gateways_found": "No valid Buspro gateways were found on your network. Please check connections and try again, or enter the gateway details manually.",
+      "already_configured": "This HDL Buspro gateway is already configured in Home Assistant.",
+      "no_devices_found": "No HDL devices were found on this gateway.",
+      "no_gateways_found": "No HDL Buspro gateways found on your network. Please check connections or enter details manually.",
       "discovery_failed_unknown": "Device discovery failed due to an unexpected error."
     },
     "progress": {
-      "discovering_gateways": "Scanning network for Buspro gateways...",
-      "discovering_devices": "Discovering devices connected to the gateway..."
+      "discovering_gateways": "Scanning network for HDL Buspro gateways...",
+      "discovering_devices": "Discovering HDL devices on gateway..."
     }
   }
 }

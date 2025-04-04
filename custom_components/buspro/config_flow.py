@@ -17,6 +17,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.components import ssdp
 from homeassistant.helpers import aiohttp_client
 import os
+import time
 
 from .const import (
     DOMAIN,
@@ -31,10 +32,27 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Placeholder commands - Replace with actual Buspro commands
-BUSPRO_BROADCAST_DISCOVERY_COMMAND = bytes.fromhex('EA 00 00 00 01 00 00 00 00 00 00 00 00 00 00 01') # Example command
-BUSPRO_DEVICE_DISCOVERY_COMMAND = bytes.fromhex('EA 00 00 00 02 00 00 00 00 00 00 00 00 00 00 02') # Example command
-BUSPRO_READ_COMMAND = bytes.fromhex('0D AB 00 00 00 00 00 00 00 00 00 00 00 00 00 00')
+# HDL Buspro Protocol Commands
+HEADER_START = bytes([0x48, 0x44, 0x4C, 0x4D, 0x49, 0x52, 0x41, 0x43, 0x4C, 0x45])  # "HDLMIRACLE"
+BROADCAST_SUBNET = 0xFF
+BROADCAST_DEVICE_ID = 0xFF
+READ_DEVICE_INFO = 0x000E
+
+# Actual HDL Buspro commands
+BUSPRO_BROADCAST_DISCOVERY_COMMAND = HEADER_START + bytes([
+    0xFF, 0xFF,  # Subnet ID, Device ID (broadcast)
+    0x00, 0x00,  # Device type
+    0x00, 0x0E,  # Operation code (READ_DEVICE_INFO)
+    0x00, 0x00   # Data length
+])
+
+BUSPRO_DEVICE_DISCOVERY_COMMAND = HEADER_START + bytes([
+    0xFF, 0xFF,  # Subnet ID, Device ID (broadcast)
+    0x00, 0x00,  # Device type
+    0x00, 0x0E,  # Operation code (READ_DEVICE_INFO)
+    0x00, 0x00   # Data length
+])
+
 BUSPRO_PORTS = [6000, 6001]
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -127,124 +145,130 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _is_valid_buspro_response(self, data: bytes, addr: tuple) -> bool:
         """Check if the received data is a valid Buspro discovery response."""
-        # --- !!! IMPORTANT: IMPLEMENT ACTUAL VALIDATION LOGIC HERE !!! ---
-        # This placeholder is too basic and will likely accept non-Buspro devices.
-        # Check specific bytes, opcodes, lengths based on HDL protocol docs.
-        # Example: Check if data starts with expected header and has minimum length
-        if data and len(data) >= 10 and data.startswith(b'\xAA\x55'): # Fictional example header
-            _LOGGER.debug(f"Received VALIDATED Buspro response from {addr}: {data.hex()}")
-            return True 
-        # -----------------------------------------------------------------
-        _LOGGER.debug(f"Received INVALID or non-Buspro response from {addr}: {data.hex()}")
-        return False
+        try:
+            # Check minimum length (header + basic info)
+            if len(data) < len(HEADER_START):
+                return False
+
+            # Verify HDL Buspro header
+            if data[:len(HEADER_START)] != HEADER_START:
+                return False
+
+            # Additional validation based on response format
+            # HDL response should contain at least:
+            # - Header (10 bytes)
+            # - Subnet ID (1 byte)
+            # - Device ID (1 byte)
+            # - Device type (2 bytes)
+            # - Operation code (2 bytes)
+            # - Data length (2 bytes)
+            if len(data) < 18:  # Header + minimum response data
+                return False
+
+            _LOGGER.debug(f"Received valid HDL Buspro response from {addr}: {data.hex()}")
+            return True
+
+        except Exception as e:
+            _LOGGER.debug(f"Error validating Buspro response: {e}")
+            return False
 
     def _discover_gateways(self) -> List[Dict]:
         """Discover Buspro gateways on the network using broadcast."""
         discovered = []
         found_addrs = set()
-        broadcast_address = '255.255.255.255'
-        timeout = 3.0 # Increased timeout slightly
 
-        # Using a context manager ensures the socket is closed
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sock.settimeout(0.5) # Shorter timeout for individual recv attempts
+        # Create socket for discovery
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.settimeout(0.5)
+
+        try:
+            # Bind to all interfaces
+            sock.bind(('', 0))
             
-            _LOGGER.debug("Sending Buspro broadcast discovery packets...")
-            # Send broadcast command to both ports
+            # Send discovery command to both ports
             for port in BUSPRO_PORTS:
                 try:
-                    sock.sendto(BUSPRO_BROADCAST_DISCOVERY_COMMAND, (broadcast_address, port))
-                except socket.error as e:
-                    _LOGGER.warning(f"Error sending broadcast to port {port}: {e}")
-            
-            _LOGGER.debug(f"Listening for Buspro gateway responses for {timeout} seconds...")
-            # Listen for responses for the total timeout duration
-            end_time = asyncio.get_event_loop().time() + timeout
-            while asyncio.get_event_loop().time() < end_time:
+                    # Send multiple times to increase reliability
+                    for _ in range(3):
+                        sock.sendto(BUSPRO_BROADCAST_DISCOVERY_COMMAND, ('255.255.255.255', port))
+                        _LOGGER.debug(f"Sent discovery broadcast to port {port}")
+                except Exception as e:
+                    _LOGGER.debug(f"Error sending to port {port}: {e}")
+
+            # Listen for responses
+            start_time = time.time()
+            while time.time() - start_time < 3:  # Listen for 3 seconds
                 try:
                     data, addr = sock.recvfrom(1024)
-                    # Check if it's a *validated* response and not already found
                     if addr[0] not in found_addrs and self._is_valid_buspro_response(data, addr):
-                        host = addr[0]
-                        port = addr[1] # Use the port the gateway responded on
-                        discovered.append({"host": host, "port": port})
-                        found_addrs.add(host) # Avoid adding the same gateway IP multiple times
-                        _LOGGER.info(f"Discovered and validated Buspro gateway at {host}:{port}")
+                        discovered.append({
+                            "host": addr[0],
+                            "port": addr[1]
+                        })
+                        found_addrs.add(addr[0])
+                        _LOGGER.info(f"Found HDL Buspro gateway at {addr[0]}:{addr[1]}")
                 except socket.timeout:
-                    # Expected timeout if no data received in the short interval, continue listening
-                    await asyncio.sleep(0.1) # Small sleep to prevent busy-waiting
-                except socket.error as e:
-                    # Log other socket errors but try to continue listening
-                    _LOGGER.debug(f"Socket error during discovery receive: {e}")
-                    await asyncio.sleep(0.1)
+                    continue
                 except Exception as e:
-                    _LOGGER.error(f"Unexpected error during discovery processing: {e}")
-                    break # Stop discovery on unexpected errors
-                    
-        _LOGGER.debug(f"Finished listening. Final discovered gateways: {discovered}")
+                    _LOGGER.debug(f"Error receiving discovery response: {e}")
+
+        except Exception as e:
+            _LOGGER.error(f"Error during gateway discovery: {e}")
+        finally:
+            sock.close()
+
         return discovered
 
     async def async_step_discovery(self, user_input=None):
         """Discover devices on the selected gateway."""
         errors = {}
         
-        # This step runs *after* a gateway host/port is selected/entered.
-        # We try to discover devices, implicitly testing the connection.
-        
         if not self._discovered_devices:
-            _LOGGER.info(f"Starting device discovery from gateway {self._host}:{self._port}")
             try:
-                # --- !!! IMPLEMENT ACTUAL DEVICE DISCOVERY LOGIC HERE !!! ---
-                # 1. Create UDP socket
-                # 2. Send BUSPRO_DEVICE_DISCOVERY_COMMAND to self._host:self._port
-                # 3. Listen for responses (multiple packets expected)
-                # 4. Parse each response to get subnet, device ID, channel, device type
-                # 5. Populate self._discovered_devices list with dicts containing:
-                #    { CONF_DEVICE_TYPE: "...", CONF_DEVICE_NAME: "...", 
-                #      CONF_DEVICE_ADDRESS: "subnet.id", CONF_DEVICE_CHANNEL: ... }
-                # 6. If communication fails (timeout, socket error), raise exceptions.ConfigEntryNotReady
+                # Create socket for device discovery
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.settimeout(2.0)
                 
-                # -------- Placeholder --------
-                # Simulate discovery: Replace this block
-                _LOGGER.warning("--- Using placeholder test devices --- Implement actual device discovery! ---")
-                await asyncio.sleep(1) # Simulate network time
-                # Simulate connection failure for testing:
-                # if self._host == "192.168.1.99": 
-                #     raise exceptions.ConfigEntryNotReady("Simulated connection failed")
-                self._discovered_devices = [
-                    {
-                        CONF_DEVICE_TYPE: "light",
-                        CONF_DEVICE_NAME: f"Light {self._host}-1.1.1", # Example name
-                        CONF_DEVICE_ADDRESS: "1.1", # Subnet.ID format
-                        CONF_DEVICE_CHANNEL: 1
-                    },
-                    {
-                        CONF_DEVICE_TYPE: "switch",
-                        CONF_DEVICE_NAME: f"Switch {self._host}-1.1.2",
-                        CONF_DEVICE_ADDRESS: "1.2", # Subnet.ID format
-                        CONF_DEVICE_CHANNEL: 1
-                    }
-                ]
-                _LOGGER.info(f"Finished placeholder device discovery. Found {len(self._discovered_devices)} devices.")
-                # --- End Placeholder ---
-                
+                try:
+                    # Send device discovery command
+                    sock.sendto(BUSPRO_DEVICE_DISCOVERY_COMMAND, (self._host, self._port))
+                    
+                    # Listen for responses
+                    start_time = time.time()
+                    self._discovered_devices = []
+                    
+                    while time.time() - start_time < 3:  # Listen for 3 seconds
+                        try:
+                            data, addr = sock.recvfrom(1024)
+                            if self._is_valid_buspro_response(data, addr):
+                                # Parse device info from response
+                                device_info = self._parse_device_info(data)
+                                if device_info:
+                                    self._discovered_devices.append(device_info)
+                        except socket.timeout:
+                            continue
+                        except Exception as e:
+                            _LOGGER.debug(f"Error receiving device info: {e}")
+                            
+                finally:
+                    sock.close()
+                    
+                if not self._discovered_devices:
+                    raise exceptions.ConfigEntryNotReady("No devices found")
+                    
             except exceptions.ConfigEntryNotReady as e:
-                 _LOGGER.error(f"Failed to connect or discover devices from gateway {self._host}:{self._port}: {e}")
-                 # Go back to the user step to allow re-entry or re-selection
-                 errors["base"] = "cannot_connect" 
-                 # We need to show the form again, depending on whether gateways were originally found
-                 if self._discovered_gateways: # If we started with discovered gateways, show selection again
-                     gateway_options = { f"{gw['host']}:{gw['port']}": f"{gw['host']} (Port {gw['port']})" for gw in self._discovered_gateways }
-                     return self.async_show_form( step_id="user", data_schema=vol.Schema({vol.Required("gateway"): vol.In(gateway_options)}), errors=errors, description_placeholders={"found_gateways": len(self._discovered_gateways)} )
-                 else: # Otherwise, show manual entry again
-                      return self.async_show_form( step_id="user", data_schema=vol.Schema({ vol.Required(CONF_HOST): cv.string, vol.Required(CONF_PORT, default=6000): vol.In(BUSPRO_PORTS) }), errors=errors, description_placeholders={"found_gateways": 0} )
-            except Exception as ex:
-                _LOGGER.exception(f"Unexpected error discovering devices from gateway {self._host}:{self._port}")
-                errors["base"] = "unknown" # Generic error for unexpected issues
-                # Abort on unknown discovery errors for now
-                return self.async_abort(reason="discovery_failed_unknown")
+                _LOGGER.error(f"Failed to discover devices: {e}")
+                errors["base"] = "cannot_connect"
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema({
+                        vol.Required(CONF_HOST): cv.string,
+                        vol.Required(CONF_PORT, default=6000): vol.In(BUSPRO_PORTS)
+                    }),
+                    errors=errors
+                )
 
         # --- Process user selection of devices --- 
         if user_input is not None:
@@ -299,6 +323,45 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "discovered_count": len(self._discovered_devices)
             }
         )
+
+    def _parse_device_info(self, data: bytes) -> Optional[Dict]:
+        """Parse device information from HDL Buspro response."""
+        try:
+            # Skip header
+            pos = len(HEADER_START)
+            
+            # Extract device information
+            subnet_id = data[pos]
+            device_id = data[pos + 1]
+            device_type = int.from_bytes(data[pos + 2:pos + 4], byteorder='big')
+            
+            # Determine device type based on HDL type code
+            device_category = self._determine_device_category(device_type)
+            if not device_category:
+                return None
+                
+            return {
+                CONF_DEVICE_TYPE: device_category,
+                CONF_DEVICE_NAME: f"HDL Device {subnet_id}.{device_id}",
+                CONF_DEVICE_ADDRESS: f"{subnet_id}.{device_id}",
+                CONF_DEVICE_CHANNEL: 1  # Default channel, modify if needed
+            }
+            
+        except Exception as e:
+            _LOGGER.debug(f"Error parsing device info: {e}")
+            return None
+
+    def _determine_device_category(self, device_type: int) -> Optional[str]:
+        """Map HDL device type to Home Assistant category."""
+        # Add proper HDL device type mappings
+        HDL_DEVICE_TYPES = {
+            # Example mappings - replace with actual HDL type codes
+            0x0001: "light",    # Dimmer
+            0x0002: "switch",   # Relay
+            0x0003: "cover",    # Curtain
+            0x0004: "climate",  # HVAC
+        }
+        return HDL_DEVICE_TYPES.get(device_type)
 
     # --- Helper methods (remove_service, add_service, _determine_device_type) --- 
     # These were related to Zeroconf/SSDP or previous discovery methods and can be removed 
