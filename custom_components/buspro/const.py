@@ -1,3 +1,8 @@
 DOMAIN = "buspro"
 CONF_HOST = "host"
 CONF_PORT = "port"
+CONF_DEVICES = "devices"
+CONF_DEVICE_TYPE = "device_type"
+CONF_DEVICE_NAME = "device_name"
+CONF_DEVICE_ADDRESS = "device_address"
+CONF_DEVICE_CHANNEL = "device_channel"
