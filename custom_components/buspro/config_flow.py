@@ -32,26 +32,27 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# HDL Buspro Protocol Commands
-HEADER_START = bytes([0x48, 0x44, 0x4C, 0x4D, 0x49, 0x52, 0x41, 0x43, 0x4C, 0x45])  # "HDLMIRACLE"
-BROADCAST_SUBNET = 0xFF
-BROADCAST_DEVICE_ID = 0xFF
-READ_DEVICE_INFO = 0x000E
-
-# Actual HDL Buspro commands
-BUSPRO_BROADCAST_DISCOVERY_COMMAND = HEADER_START + bytes([
-    0xFF, 0xFF,  # Subnet ID, Device ID (broadcast)
-    0x00, 0x00,  # Device type
-    0x00, 0x0E,  # Operation code (READ_DEVICE_INFO)
-    0x00, 0x00   # Data length
+# HDL Buspro Protocol Commands - Updated based on Wireshark capture
+HEADER_START = bytes([
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  # Destination MAC (broadcast)
+    0x40, 0x04, 0x09, 0x04, 0x44, 0xfb,  # Source MAC
+    0x08, 0x00,                          # Type: IPv4
+    0x45,                                # IP Version and Header Length
+    0x00                                 # DSCP
 ])
 
-BUSPRO_DEVICE_DISCOVERY_COMMAND = HEADER_START + bytes([
-    0xFF, 0xFF,  # Subnet ID, Device ID (broadcast)
-    0x00, 0x00,  # Device type
-    0x00, 0x0E,  # Operation code (READ_DEVICE_INFO)
-    0x00, 0x00   # Data length
+# The actual command structure seen in Wireshark
+BUSPRO_BROADCAST_DISCOVERY_COMMAND = bytes([
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  # Destination MAC (broadcast)
+    0x40, 0x04, 0x09, 0x04, 0x44, 0xfb,  # Source MAC
+    0x08, 0x00,                          # Type: IPv4
+    0x45,                                # IP Version
+    0x00,                                # DSCP
+    0x4c, 0x4d, 0x49, 0x52, 0x41, 0x43, 0x4c, 0x45  # "LMIRACLE"
 ])
+
+# Update device discovery command to match protocol
+BUSPRO_DEVICE_DISCOVERY_COMMAND = BUSPRO_BROADCAST_DISCOVERY_COMMAND
 
 BUSPRO_PORTS = [6000, 6001]
 
@@ -146,23 +147,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _is_valid_buspro_response(self, data: bytes, addr: tuple) -> bool:
         """Check if the received data is a valid Buspro discovery response."""
         try:
-            # Check minimum length (header + basic info)
-            if len(data) < len(HEADER_START):
+            # Check minimum length for a valid HDL packet
+            if len(data) < 32:  # Minimum size based on Wireshark capture
+                _LOGGER.debug(f"Packet too short: {len(data)} bytes")
                 return False
 
-            # Verify HDL Buspro header
-            if data[:len(HEADER_START)] != HEADER_START:
-                return False
-
-            # Additional validation based on response format
-            # HDL response should contain at least:
-            # - Header (10 bytes)
-            # - Subnet ID (1 byte)
-            # - Device ID (1 byte)
-            # - Device type (2 bytes)
-            # - Operation code (2 bytes)
-            # - Data length (2 bytes)
-            if len(data) < 18:  # Header + minimum response data
+            # Look for the "LMIRACLE" signature anywhere in the packet
+            if b'LMIRACLE' not in data:
+                _LOGGER.debug("No LMIRACLE signature found in packet")
                 return False
 
             _LOGGER.debug(f"Received valid HDL Buspro response from {addr}: {data.hex()}")
@@ -194,6 +186,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     for _ in range(3):
                         sock.sendto(BUSPRO_BROADCAST_DISCOVERY_COMMAND, ('255.255.255.255', port))
                         _LOGGER.debug(f"Sent discovery broadcast to port {port}")
+                        # Add a small delay between sends
+                        time.sleep(0.1)
                 except Exception as e:
                     _LOGGER.debug(f"Error sending to port {port}: {e}")
 
@@ -209,6 +203,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         })
                         found_addrs.add(addr[0])
                         _LOGGER.info(f"Found HDL Buspro gateway at {addr[0]}:{addr[1]}")
+                        _LOGGER.debug(f"Response data: {data.hex()}")
                 except socket.timeout:
                     continue
                 except Exception as e:
