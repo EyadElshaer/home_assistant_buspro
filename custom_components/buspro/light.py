@@ -142,24 +142,49 @@ class BusproLight(LightEntity):
 
     async def async_turn_on(self, **kwargs):
         """Instruct the light to turn on."""
+        # Store the target brightness
         if ATTR_BRIGHTNESS in kwargs:
-            brightness = int(kwargs[ATTR_BRIGHTNESS] / 255 * 100)
-            await self._device.set_brightness(brightness, self._running_time)
+            target_brightness = int(kwargs[ATTR_BRIGHTNESS] / 255 * 100)
         else:
-            # If no brightness specified, turn on at full brightness or previous brightness
-            if self._device.previous_brightness is not None and not self.is_on:
-                await self._device.set_brightness(self._device.previous_brightness, self._running_time)
-            else:
-                await self._device.set_on(self._running_time)
-        
-        # Update HA state after sending command
+            target_brightness = self._device.previous_brightness if self._device.previous_brightness is not None and not self.is_on else 100
+
+        # Update internal state immediately
+        self._device._brightness = target_brightness
         self.async_write_ha_state()
+
+        # Send the actual command in the background
+        async def send_command():
+            try:
+                if ATTR_BRIGHTNESS in kwargs:
+                    await self._device.set_brightness(target_brightness, self._running_time)
+                else:
+                    if self._device.previous_brightness is not None and not self.is_on:
+                        await self._device.set_brightness(target_brightness, self._running_time)
+                    else:
+                        await self._device.set_on(self._running_time)
+            except Exception as e:
+                _LOGGER.error(f"Error sending command to light {self.name}: {str(e)}")
+                # Revert state if command failed
+                await self.async_read_status()
+
+        self._hass.async_create_task(send_command())
 
     async def async_turn_off(self, **kwargs):
         """Instruct the light to turn off."""
-        await self._device.set_off(self._running_time)
-        # Update HA state after sending command
+        # Update internal state immediately
+        self._device._brightness = 0
         self.async_write_ha_state()
+
+        # Send the actual command in the background
+        async def send_command():
+            try:
+                await self._device.set_off(self._running_time)
+            except Exception as e:
+                _LOGGER.error(f"Error sending command to light {self.name}: {str(e)}")
+                # Revert state if command failed
+                await self.async_read_status()
+
+        self._hass.async_create_task(send_command())
 
     @property
     def unique_id(self):
