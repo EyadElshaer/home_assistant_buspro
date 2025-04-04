@@ -18,13 +18,15 @@
       }
     },
     "error": {
-      "unknown": "An error occurred.",
+      "cannot_connect": "Failed to connect to the gateway. Please check the host and port.",
+      "unknown": "An unexpected error occurred.",
       "invalid_device": "Invalid device configuration",
       "duplicate_device": "Device already configured",
       "discovery_failed": "Failed to discover devices from the gateway"
     },
     "abort": {
-      "already_configured": "Device is already configured"
+      "already_configured": "Device is already configured",
+      "no_devices_found": "No devices were found on the network"
     }
   }
 }

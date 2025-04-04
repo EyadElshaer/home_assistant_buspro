@@ -29,10 +29,12 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-class BusproConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Buspro."""
     
+    VERSION = 1
+    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
+
     def __init__(self):
         """Initialize the config flow."""
         self._devices = []
@@ -46,75 +48,34 @@ class BusproConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         
         if user_input is not None:
-            self._host = user_input[CONF_HOST]
-            self._port = user_input[CONF_PORT]
-            return await self.async_step_discovery()
-
-        # Try to discover gateways automatically
-        discovered_gateways = await self._async_discover_gateways()
-        
-        if discovered_gateways:
-            return self.async_show_form(
-                step_id="user",
-                data_schema=vol.Schema({
-                    vol.Required(CONF_HOST): vol.In({
-                        gateway[CONF_HOST]: f"{gateway[CONF_HOST]}:{gateway[CONF_PORT]}"
-                        for gateway in discovered_gateways
-                    }),
-                    vol.Required(CONF_PORT): cv.port
-                }),
-                errors=errors
-            )
+            try:
+                self._host = user_input[CONF_HOST]
+                self._port = user_input[CONF_PORT]
+                
+                # Validate connection before proceeding
+                session = aiohttp_client.async_get_clientsession(self.hass)
+                try:
+                    async with session.get(
+                        f"http://{self._host}:{self._port}/",
+                        timeout=10
+                    ) as response:
+                        if response.status == 200:
+                            return await self.async_step_discovery()
+                        errors["base"] = "cannot_connect"
+                except (asyncio.TimeoutError, aiohttp.ClientError):
+                    errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
                 vol.Required(CONF_HOST): cv.string,
-                vol.Required(CONF_PORT): cv.port
+                vol.Required(CONF_PORT, default=6000): cv.port,
             }),
             errors=errors
         )
-
-    async def _async_discover_gateways(self) -> List[Dict]:
-        """Discover Buspro gateways using SSDP and Zeroconf."""
-        discovered_gateways = []
-
-        # SSDP Discovery
-        ssdp_entries = await ssdp.async_get_discovery_info_by_st(
-            self.hass, "urn:schemas-upnp-org:device:Basic:1"
-        )
-        
-        for entry in ssdp_entries:
-            if "HDL" in entry.get(ssdp.ATTR_UPNP_MANUFACTURER, ""):
-                discovered_gateways.append({
-                    CONF_HOST: entry.get(ssdp.ATTR_SSDP_LOCATION, "").split("//")[1].split(":")[0],
-                    CONF_PORT: 6000  # Default Buspro port
-                })
-
-        # Zeroconf Discovery
-        zeroconf = await self.hass.async_add_executor_job(Zeroconf)
-        try:
-            browser = ServiceBrowser(zeroconf, "_hdl-buspro._tcp.local.", self)
-            await asyncio.sleep(5)  # Wait for discovery
-            for gateway in self._discovered_gateways.values():
-                discovered_gateways.append(gateway)
-        finally:
-            await self.hass.async_add_executor_job(zeroconf.close)
-
-        return discovered_gateways
-
-    def remove_service(self, zeroconf, type, name):
-        """Handle removal of a service."""
-        pass
-
-    def add_service(self, zeroconf, type, name):
-        """Handle addition of a service."""
-        info = zeroconf.get_service_info(type, name)
-        if info:
-            self._discovered_gateways[name] = {
-                CONF_HOST: socket.inet_ntoa(info.addresses[0]),
-                CONF_PORT: info.port
-            }
 
     async def async_step_discovery(self, user_input=None):
         """Handle the device discovery step."""
@@ -122,26 +83,21 @@ class BusproConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         if not self._discovered_devices:
             try:
-                # Connect to the gateway and discover devices
-                session = aiohttp_client.async_get_clientsession(self.hass)
-                async with session.get(f"http://{self._host}:{self._port}/devices") as response:
-                    if response.status == 200:
-                        devices_data = await response.json()
-                        self._discovered_devices = []
-                        
-                        for device in devices_data:
-                            # Determine device type based on device data
-                            device_type = self._determine_device_type(device)
-                            
-                            if device_type:
-                                self._discovered_devices.append({
-                                    CONF_DEVICE_TYPE: device_type,
-                                    CONF_DEVICE_NAME: device.get("name", f"Buspro Device {device.get('address')}"),
-                                    CONF_DEVICE_ADDRESS: device.get("address"),
-                                    CONF_DEVICE_CHANNEL: device.get("channel", 1)
-                                })
-                    else:
-                        errors["base"] = "discovery_failed"
+                # For now, let's add some test devices until we implement actual discovery
+                self._discovered_devices = [
+                    {
+                        CONF_DEVICE_TYPE: "light",
+                        CONF_DEVICE_NAME: "Living Room Light",
+                        CONF_DEVICE_ADDRESS: "1.1.1",
+                        CONF_DEVICE_CHANNEL: 1
+                    },
+                    {
+                        CONF_DEVICE_TYPE: "switch",
+                        CONF_DEVICE_NAME: "Kitchen Switch",
+                        CONF_DEVICE_ADDRESS: "1.1.2",
+                        CONF_DEVICE_CHANNEL: 1
+                    }
+                ]
             except Exception as ex:
                 _LOGGER.error("Error discovering devices: %s", ex)
                 errors["base"] = "discovery_failed"
@@ -157,7 +113,7 @@ class BusproConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._devices.append(device)
             
             return self.async_create_entry(
-                title="Buspro",
+                title=f"Buspro Gateway ({self._host})",
                 data={
                     CONF_HOST: self._host,
                     CONF_PORT: self._port,
@@ -168,7 +124,6 @@ class BusproConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not self._discovered_devices:
             return self.async_abort(reason="no_devices_found")
 
-        # Create a list of device options for the multi-select
         device_options = {
             device[CONF_DEVICE_ADDRESS]: f"{device[CONF_DEVICE_NAME]} ({device[CONF_DEVICE_TYPE]})"
             for device in self._discovered_devices
@@ -181,6 +136,19 @@ class BusproConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }),
             errors=errors
         )
+
+    def remove_service(self, zeroconf, type, name):
+        """Handle removal of a service."""
+        pass
+
+    def add_service(self, zeroconf, type, name):
+        """Handle addition of a service."""
+        info = zeroconf.get_service_info(type, name)
+        if info:
+            self._discovered_gateways[name] = {
+                CONF_HOST: socket.inet_ntoa(info.addresses[0]),
+                CONF_PORT: info.port
+            }
 
     def _determine_device_type(self, device_data: Dict) -> Optional[str]:
         """Determine the device type based on device data."""
