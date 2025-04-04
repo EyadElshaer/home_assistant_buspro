@@ -37,6 +37,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._devices = []
         self._host = None
         self._port = None
+        self._discovered_devices = []
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
@@ -45,7 +46,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._host = user_input[CONF_HOST]
             self._port = user_input[CONF_PORT]
-            return await self.async_step_devices()
+            return await self.async_step_discovery()
 
         return self.async_show_form(
             step_id="user",
@@ -56,49 +57,62 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors
         )
 
-    async def async_step_devices(self, user_input=None):
-        """Handle the devices step."""
+    async def async_step_discovery(self, user_input=None):
+        """Handle the device discovery step."""
         errors = {}
         
-        if user_input is not None:
-            device = {
-                CONF_DEVICE_TYPE: user_input[CONF_DEVICE_TYPE],
-                CONF_DEVICE_NAME: user_input[CONF_DEVICE_NAME],
-                CONF_DEVICE_ADDRESS: user_input[CONF_DEVICE_ADDRESS],
-                CONF_DEVICE_CHANNEL: user_input[CONF_DEVICE_CHANNEL]
-            }
-            
-            # Check for duplicate devices
-            for existing_device in self._devices:
-                if (existing_device[CONF_DEVICE_ADDRESS] == device[CONF_DEVICE_ADDRESS] and
-                    existing_device[CONF_DEVICE_CHANNEL] == device[CONF_DEVICE_CHANNEL]):
-                    errors["base"] = "duplicate_device"
-                    break
-            
-            if not errors:
-                self._devices.append(device)
-                # If user wants to add more devices, show the form again
-                if user_input.get("add_another", False):
-                    return await self.async_step_devices()
-                
-                # Otherwise, create the entry with all devices
-                return self.async_create_entry(
-                    title="Buspro",
-                    data={
-                        CONF_HOST: self._host,
-                        CONF_PORT: self._port,
-                        CONF_DEVICES: self._devices
+        if not self._discovered_devices:
+            # Try to discover devices from the gateway
+            try:
+                # This is where you would implement the actual device discovery logic
+                # For now, we'll simulate some discovered devices
+                self._discovered_devices = [
+                    {
+                        CONF_DEVICE_TYPE: "light",
+                        CONF_DEVICE_NAME: "Living Room Light",
+                        CONF_DEVICE_ADDRESS: "1.1.1",
+                        CONF_DEVICE_CHANNEL: 1
+                    },
+                    {
+                        CONF_DEVICE_TYPE: "switch",
+                        CONF_DEVICE_NAME: "Kitchen Switch",
+                        CONF_DEVICE_ADDRESS: "1.1.2",
+                        CONF_DEVICE_CHANNEL: 1
                     }
+                ]
+            except Exception as ex:
+                _LOGGER.error("Error discovering devices: %s", ex)
+                errors["base"] = "discovery_failed"
+                return self.async_show_form(
+                    step_id="discovery",
+                    errors=errors
                 )
 
+        if user_input is not None:
+            selected_devices = user_input.get("selected_devices", [])
+            for device_id in selected_devices:
+                device = next(d for d in self._discovered_devices if d[CONF_DEVICE_ADDRESS] == device_id)
+                self._devices.append(device)
+            
+            return self.async_create_entry(
+                title="Buspro",
+                data={
+                    CONF_HOST: self._host,
+                    CONF_PORT: self._port,
+                    CONF_DEVICES: self._devices
+                }
+            )
+
+        # Create a list of device options for the multi-select
+        device_options = {
+            device[CONF_DEVICE_ADDRESS]: f"{device[CONF_DEVICE_NAME]} ({device[CONF_DEVICE_TYPE]})"
+            for device in self._discovered_devices
+        }
+
         return self.async_show_form(
-            step_id="devices",
+            step_id="discovery",
             data_schema=vol.Schema({
-                vol.Required(CONF_DEVICE_TYPE): vol.In(["light", "switch", "cover", "climate"]),
-                vol.Required(CONF_DEVICE_NAME): cv.string,
-                vol.Required(CONF_DEVICE_ADDRESS): cv.string,
-                vol.Required(CONF_DEVICE_CHANNEL): cv.positive_int,
-                vol.Optional("add_another"): cv.boolean
+                vol.Required("selected_devices"): cv.multi_select(device_options)
             }),
             errors=errors
         )

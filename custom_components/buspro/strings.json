@@ -9,21 +9,19 @@
           "port": "Port number"
         }
       },
-      "devices": {
-        "title": "Add Buspro Devices",
-        "description": "Add your Buspro devices to Home Assistant.",
+      "discovery": {
+        "title": "Discovered Devices",
+        "description": "Select the devices you want to add to Home Assistant.",
         "data": {
-          "device_type": "Device Type",
-          "device_name": "Device Name",
-          "device_address": "Device Address",
-          "device_channel": "Device Channel"
+          "selected_devices": "Select Devices"
         }
       }
     },
     "error": {
       "unknown": "An error occurred.",
       "invalid_device": "Invalid device configuration",
-      "duplicate_device": "Device already configured"
+      "duplicate_device": "Device already configured",
+      "discovery_failed": "Failed to discover devices from the gateway"
     },
     "abort": {
       "already_configured": "Device is already configured"
