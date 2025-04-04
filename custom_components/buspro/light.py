@@ -142,19 +142,23 @@ class BusproLight(LightEntity):
 
     async def async_turn_on(self, **kwargs):
         """Instruct the light to turn on."""
-        brightness = int(kwargs.get(ATTR_BRIGHTNESS, 255) / 255 * 100)
-
-        if not self.is_on and self._device.previous_brightness is not None and brightness == 100:
-            brightness = self._device.previous_brightness
-
-        # Send the command and update state
-        await self._device.set_brightness(brightness, self._running_time)
+        if ATTR_BRIGHTNESS in kwargs:
+            brightness = int(kwargs[ATTR_BRIGHTNESS] / 255 * 100)
+            await self._device.set_brightness(brightness, self._running_time)
+        else:
+            # If no brightness specified, turn on at full brightness or previous brightness
+            if self._device.previous_brightness is not None and not self.is_on:
+                await self._device.set_brightness(self._device.previous_brightness, self._running_time)
+            else:
+                await self._device.set_on(self._running_time)
+        
+        # Update HA state after sending command
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
         """Instruct the light to turn off."""
-        # Send the command and update state
         await self._device.set_off(self._running_time)
+        # Update HA state after sending command
         self.async_write_ha_state()
 
     @property
