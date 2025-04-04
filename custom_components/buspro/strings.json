@@ -3,13 +3,23 @@
     "step": {
       "user": {
         "title": "Buspro gateway configuration",
-        "description": "Enter IP address, port number, and device identification details.",
+        "description": "Enter IP address and port number of the gateway.",
         "data": {
           "host": "Host IP address",
-          "port": "Port number",
+          "port": "Port number"
+        }
+      },
+      "device": {
+        "title": "Device configuration",
+        "description": "Enter device identification details and optional properties.",
+        "data": {
+          "device_type": "Device type",
           "channel_id": "Channel ID",
           "device_id": "Device ID",
-          "subnet_id": "Subnet ID"
+          "subnet_id": "Subnet ID",
+          "name": "Device name",
+          "running_time": "Running time (seconds)",
+          "dimmable": "Is dimmable"
         }
       }
     },
