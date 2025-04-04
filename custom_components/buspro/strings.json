@@ -3,33 +3,34 @@
     "step": {
       "user": {
         "title": "Buspro Gateway Configuration",
-        "description": "Found {found_gateways} Buspro gateways on your network. Please select one, or enter details manually if your gateway was not found.",
+        "description": "Found {found_gateways} potential Buspro gateways on your network. Please select one. If your gateway wasn't found, please ensure it's connected to the network and try again, or enter its details manually.",
         "data": {
-          "gateway": "Select Gateway",
+          "gateway": "Select Discovered Gateway",
           "host": "Host IP address (if not auto-discovered)",
-          "port": "Port number (6000 or 6001)"
+          "port": "Port number (usually 6000 or 6001)"
         }
       },
       "discovery": {
-        "title": "Discovered Devices",
-        "description": "Select the devices you want to add to Home Assistant.",
+        "title": "Discovered Buspro Devices",
+        "description": "Found {discovered_count} devices connected to the gateway at {gateway_host}:{gateway_port}. Select the devices you want to add to Home Assistant.",
         "data": {
-          "selected_devices": "Select Devices"
+          "selected_devices": "Select Devices to Add"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to the gateway. Please check the host and port.",
-      "unknown": "An unexpected error occurred.",
-      "discovery_failed": "Failed to discover devices from the gateway"
+      "cannot_connect": "Failed to connect to the selected gateway. Please check if it's online and reachable.",
+      "unknown": "An unexpected error occurred during setup.",
+      "discovery_failed": "Failed to discover devices from the gateway. Please check the connection."
     },
     "abort": {
-      "already_configured": "Device is already configured",
-      "no_devices_found": "No devices were found on the network",
-      "no_gateways": "No Buspro gateways were found on the network"
+      "already_configured": "A Buspro gateway is already configured.",
+      "no_devices_found": "No controllable devices were found connected to this gateway.",
+      "no_gateways_found": "No Buspro gateways were found on your network. Please check connections and try again, or enter the gateway details manually."
     },
     "progress": {
-      "discovering": "Scanning network for Buspro gateways..."
+      "discovering_gateways": "Scanning network for Buspro gateways...",
+      "discovering_devices": "Discovering devices connected to the gateway..."
     }
   }
 }
