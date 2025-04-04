@@ -6,6 +6,7 @@ https://home-assistant.io/components/...
 """
 
 import logging
+import asyncio
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -83,6 +84,7 @@ class BusproLight(LightEntity):
         self._device = device
         self._running_time = running_time
         self._dimmable = dimmable
+        self._command_lock = asyncio.Lock()
         if self._dimmable:
             self._attr_color_mode = ColorMode.BRIGHTNESS
             self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
@@ -90,8 +92,8 @@ class BusproLight(LightEntity):
             self._attr_color_mode = ColorMode.ONOFF
             self._attr_supported_color_modes = {ColorMode.ONOFF}
         self.async_register_callbacks()
-         # Set the polling interval (e.g., every 30 seconds)
-        self._polling_interval = timedelta(minutes=60)
+        # Set the polling interval to 1 minute for regular state updates
+        self._polling_interval = timedelta(minutes=1)
         event.async_track_time_interval(hass, self.async_update, self._polling_interval)
 
 
@@ -148,43 +150,56 @@ class BusproLight(LightEntity):
         else:
             target_brightness = self._device.previous_brightness if self._device.previous_brightness is not None and not self.is_on else 100
 
-        # Update internal state immediately
-        self._device._brightness = target_brightness
-        self.async_write_ha_state()
-
-        # Send the actual command in the background
+        # Send command with timeout
         async def send_command():
             try:
-                if ATTR_BRIGHTNESS in kwargs:
-                    await self._device.set_brightness(target_brightness, self._running_time)
-                else:
-                    if self._device.previous_brightness is not None and not self.is_on:
+                async with asyncio.timeout(2.0):  # 2 second timeout
+                    if ATTR_BRIGHTNESS in kwargs:
                         await self._device.set_brightness(target_brightness, self._running_time)
                     else:
-                        await self._device.set_on(self._running_time)
+                        if self._device.previous_brightness is not None and not self.is_on:
+                            await self._device.set_brightness(target_brightness, self._running_time)
+                        else:
+                            await self._device.set_on(self._running_time)
+                return True
+            except asyncio.TimeoutError:
+                _LOGGER.warning(f"Command timeout for light {self.name}")
+                return False
             except Exception as e:
                 _LOGGER.error(f"Error sending command to light {self.name}: {str(e)}")
-                # Revert state if command failed
-                await self.async_read_status()
+                return False
 
-        self._hass.async_create_task(send_command())
+        # Acquire lock to prevent multiple simultaneous commands
+        async with self._command_lock:
+            # Update state optimistically
+            self._device._brightness = target_brightness
+            self.async_write_ha_state()
+            
+            # Send command in background
+            self._hass.async_create_task(send_command())
 
     async def async_turn_off(self, **kwargs):
         """Instruct the light to turn off."""
-        # Update internal state immediately
-        self._device._brightness = 0
-        self.async_write_ha_state()
-
-        # Send the actual command in the background
         async def send_command():
             try:
-                await self._device.set_off(self._running_time)
+                async with asyncio.timeout(2.0):  # 2 second timeout
+                    await self._device.set_off(self._running_time)
+                return True
+            except asyncio.TimeoutError:
+                _LOGGER.warning(f"Command timeout for light {self.name}")
+                return False
             except Exception as e:
                 _LOGGER.error(f"Error sending command to light {self.name}: {str(e)}")
-                # Revert state if command failed
-                await self.async_read_status()
+                return False
 
-        self._hass.async_create_task(send_command())
+        # Acquire lock to prevent multiple simultaneous commands
+        async with self._command_lock:
+            # Update state optimistically
+            self._device._brightness = 0
+            self.async_write_ha_state()
+            
+            # Send command in background
+            self._hass.async_create_task(send_command())
 
     @property
     def unique_id(self):
