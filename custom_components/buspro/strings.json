@@ -2,37 +2,19 @@
   "config": {
     "step": {
       "user": {
-        "title": "HDL Buspro Gateway Discovery",
-        "description": "Found {found_gateways} HDL Buspro gateways on your network. Please select one, or enter gateway details manually if yours wasn't found.",
+        "title": "Buspro gateway configuration",
+        "description": "Enter IP address, port number, and device identification details.",
         "data": {
-          "gateway": "Select Discovered Gateway",
-          "host": "Gateway IP Address (if not discovered)",
-          "port": "Port (6000 or 6001)"
-        }
-      },
-      "discovery": {
-        "title": "HDL Buspro Device Discovery",
-        "description": "Found {discovered_count} HDL devices on gateway {gateway_host}:{gateway_port}. Please select the devices you want to add to Home Assistant.",
-        "data": {
-          "selected_devices": "Select Devices"
+          "host": "Host IP address",
+          "port": "Port number",
+          "channel_id": "Channel ID",
+          "device_id": "Device ID",
+          "subnet_id": "Subnet ID"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to the HDL Buspro gateway. Please verify it's online and the IP/port are correct.",
-      "unknown": "Unexpected error occurred during setup.",
-      "discovery_failed": "Failed to discover HDL devices. Please check gateway connection.",
-      "no_devices_selected": "Please select at least one device to add."
-    },
-    "abort": {
-      "already_configured": "This HDL Buspro gateway is already configured in Home Assistant.",
-      "no_devices_found": "No HDL devices were found on this gateway.",
-      "no_gateways_found": "No HDL Buspro gateways found on your network. Please check connections or enter details manually.",
-      "discovery_failed_unknown": "Device discovery failed due to an unexpected error."
-    },
-    "progress": {
-      "discovering_gateways": "Scanning network for HDL Buspro gateways...",
-      "discovering_devices": "Discovering HDL devices on gateway..."
+      "unknown": "An error occurred."
     }
   }
 }

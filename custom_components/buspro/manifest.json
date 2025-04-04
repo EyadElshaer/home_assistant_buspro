@@ -6,15 +6,10 @@
   "issue_tracker": "https://github.com/EyadElshaer/home_assistant_buspro/issues",
   "codeowners": ["@EyadElshaer"],
   "dependencies": [],
-  "requirements": ["aiohttp>=3.8.0"],
-  "ssdp": [
-    {
-      "manufacturer": "HDL",
-      "deviceType": "urn:schemas-upnp-org:device:Basic:1"
-    }
-  ],
-  "zeroconf": ["_hdl-buspro._tcp.local."],
+  "requirements": [],
+  "ssdp": [],
+  "zeroconf": [],
   "homekit": {},
-  "version": "1.0.0",
+  "version": "1.0.0-beta9",
   "iot_class": "local_polling"
 }
