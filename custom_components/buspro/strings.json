@@ -19,14 +19,16 @@
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to the selected gateway. Please check if it's online and reachable.",
+      "cannot_connect": "Failed to connect or discover devices from the selected gateway. Please check if it's online, reachable, and responding correctly.",
       "unknown": "An unexpected error occurred during setup.",
-      "discovery_failed": "Failed to discover devices from the gateway. Please check the connection."
+      "discovery_failed": "Failed to discover devices from the gateway. Please check the connection.",
+      "no_devices_selected": "Please select at least one device to add."
     },
     "abort": {
-      "already_configured": "A Buspro gateway is already configured.",
+      "already_configured": "This Buspro gateway ({host}:{port}) is already configured.",
       "no_devices_found": "No controllable devices were found connected to this gateway.",
-      "no_gateways_found": "No Buspro gateways were found on your network. Please check connections and try again, or enter the gateway details manually."
+      "no_gateways_found": "No valid Buspro gateways were found on your network. Please check connections and try again, or enter the gateway details manually.",
+      "discovery_failed_unknown": "Device discovery failed due to an unexpected error."
     },
     "progress": {
       "discovering_gateways": "Scanning network for Buspro gateways...",

@@ -52,101 +52,90 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovered_gateways = []
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step."""
+        """Handle the initial step: Discover or prompt for manual entry."""
         errors = {}
 
-        # Try to discover gateways first
-        if not self._discovered_gateways:
+        # Discover gateways only once
+        if not hasattr(self, '_discovery_attempted'):
             _LOGGER.info("Starting Buspro gateway discovery...")
             self._discovered_gateways = await self.hass.async_add_executor_job(self._discover_gateways)
-            _LOGGER.info(f"Discovered {len(self._discovered_gateways)} potential gateways: {self._discovered_gateways}")
-
-        if not user_input:
-            # If we found gateways, show them in a selection form
-            if self._discovered_gateways:
-                gateway_options = {
-                    f"{gateway['host']}:{gateway['port']}": f"{gateway['host']} (Port {gateway['port']})"
-                    for gateway in self._discovered_gateways
-                }
+            _LOGGER.info(f"Discovery finished. Found {len(self._discovered_gateways)} potential gateways: {self._discovered_gateways}")
+            self._discovery_attempted = True # Mark that discovery has run
+        
+        # If user_input is provided, process it
+        if user_input is not None:
+            try:
+                if "gateway" in user_input:
+                    # User selected a discovered gateway
+                    host, port = user_input["gateway"].split(":")
+                    self._host = host
+                    self._port = int(port)
+                    _LOGGER.info(f"User selected discovered gateway: {self._host}:{self._port}")
+                else:
+                    # Manual entry (only possible if no gateways were discovered)
+                    self._host = user_input[CONF_HOST]
+                    self._port = user_input[CONF_PORT]
+                    _LOGGER.info(f"User entered gateway manually: {self._host}:{self._port}")
                 
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=vol.Schema({
-                        vol.Required("gateway"): vol.In(gateway_options)
-                    }),
-                    description_placeholders={
-                        "found_gateways": len(self._discovered_gateways)
-                    }
-                )
-            else:
-                # If no gateways found, allow manual entry
-                _LOGGER.warning("No Buspro gateways found, prompting for manual entry.")
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=vol.Schema({
-                        vol.Required(CONF_HOST): cv.string,
-                        vol.Required(CONF_PORT, default=6000): vol.In([6000, 6001])
-                    }),
-                    errors=errors,
-                    description_placeholders={"found_gateways": 0} # Update placeholder for manual entry message
-                )
-
-        # Handle user selection or manual entry
-        try:
-            if "gateway" in user_input:
-                # User selected a discovered gateway
-                host, port = user_input["gateway"].split(":")
-                self._host = host
-                self._port = int(port)
-            else:
-                # Manual entry
-                self._host = user_input[CONF_HOST]
-                self._port = user_input[CONF_PORT]
-
-            _LOGGER.info(f"Testing connection to {self._host}:{self._port}")
-            if await self.hass.async_add_executor_job(self._test_connection):
-                _LOGGER.info("Connection successful.")
+                # Set unique ID to prevent configuring the same gateway twice
+                await self.async_set_unique_id(f"{self._host}:{self._port}")
+                self._abort_if_unique_id_configured()
+                
+                # Proceed directly to device discovery step - connection is tested implicitly there
                 return await self.async_step_discovery()
-            else:
-                _LOGGER.warning("Connection failed.")
-                errors["base"] = "cannot_connect"
-        except Exception:
-            _LOGGER.exception("Unexpected exception during connection/setup")
-            errors["base"] = "unknown"
+            
+            except exceptions.ConfigEntryNotReady:
+                 # This shouldn't happen here, but handle just in case
+                 errors["base"] = "cannot_connect" 
+            except AbortFlow as e:
+                 return self.async_abort(reason=e.reason)
+            except Exception:
+                _LOGGER.exception("Unexpected exception during user step processing")
+                errors["base"] = "unknown"
 
-        # If we get here, there was an error, redisplay the form
+        # --- Show the appropriate form --- 
+        
+        # If we found gateways, force selection
         if self._discovered_gateways:
             gateway_options = {
                 f"{gateway['host']}:{gateway['port']}": f"{gateway['host']} (Port {gateway['port']})"
                 for gateway in self._discovered_gateways
             }
+            
             return self.async_show_form(
                 step_id="user",
                 data_schema=vol.Schema({
                     vol.Required("gateway"): vol.In(gateway_options)
                 }),
-                errors=errors,
-                description_placeholders={"found_gateways": len(self._discovered_gateways)}
+                description_placeholders={
+                    "found_gateways": len(self._discovered_gateways)
+                },
+                errors=errors # Show errors if processing failed
             )
         else:
+            # If no gateways found, allow manual entry
+            _LOGGER.warning("No valid Buspro gateways discovered, prompting for manual entry.")
             return self.async_show_form(
                 step_id="user",
                 data_schema=vol.Schema({
                     vol.Required(CONF_HOST): cv.string,
-                    vol.Required(CONF_PORT, default=6000): vol.In([6000, 6001])
+                    vol.Required(CONF_PORT, default=6000): vol.In(BUSPRO_PORTS)
                 }),
-                errors=errors,
-                description_placeholders={"found_gateways": 0}
+                errors=errors, # Show errors if processing failed
+                description_placeholders={"found_gateways": 0} 
             )
 
     def _is_valid_buspro_response(self, data: bytes, addr: tuple) -> bool:
         """Check if the received data is a valid Buspro discovery response."""
-        # Add logic here to validate the response based on the Buspro protocol
-        # For example, check message length, specific header bytes, etc.
-        # This is a placeholder - needs actual validation logic!
-        if data and len(data) >= 16: # Example: Check minimum length
-            _LOGGER.debug(f"Received potential Buspro response from {addr}: {data.hex()}")
-            return True # Assume valid for now if we get any data back
+        # --- !!! IMPORTANT: IMPLEMENT ACTUAL VALIDATION LOGIC HERE !!! ---
+        # This placeholder is too basic and will likely accept non-Buspro devices.
+        # Check specific bytes, opcodes, lengths based on HDL protocol docs.
+        # Example: Check if data starts with expected header and has minimum length
+        if data and len(data) >= 10 and data.startswith(b'\xAA\x55'): # Fictional example header
+            _LOGGER.debug(f"Received VALIDATED Buspro response from {addr}: {data.hex()}")
+            return True 
+        # -----------------------------------------------------------------
+        _LOGGER.debug(f"Received INVALID or non-Buspro response from {addr}: {data.hex()}")
         return False
 
     def _discover_gateways(self) -> List[Dict]:
@@ -154,147 +143,156 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         discovered = []
         found_addrs = set()
         broadcast_address = '255.255.255.255'
-        timeout = 2.0 # Seconds to wait for responses
+        timeout = 3.0 # Increased timeout slightly
 
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        # Using a context manager ensures the socket is closed
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sock.settimeout(timeout)
+            sock.settimeout(0.5) # Shorter timeout for individual recv attempts
             
-            try:
-                # Send broadcast command to both ports
-                for port in BUSPRO_PORTS:
-                    try:
-                        sock.sendto(BUSPRO_BROADCAST_DISCOVERY_COMMAND, (broadcast_address, port))
-                        _LOGGER.debug(f"Sent broadcast discovery to {broadcast_address}:{port}")
-                    except socket.error as e:
-                        _LOGGER.warning(f"Error sending broadcast to port {port}: {e}")
-                
-                # Listen for responses
-                start_time = asyncio.get_event_loop().time()
-                while asyncio.get_event_loop().time() - start_time < timeout:
-                    try:
-                        data, addr = sock.recvfrom(1024)
-                        # Check if it's a valid response and not already found
-                        if addr[0] not in found_addrs and self._is_valid_buspro_response(data, addr):
-                            discovered.append({
-                                "host": addr[0],
-                                "port": addr[1] # Use the port the gateway responded on
-                            })
-                            found_addrs.add(addr[0]) # Avoid adding the same gateway multiple times
-                            _LOGGER.info(f"Discovered valid Buspro gateway at {addr[0]}:{addr[1]}")
-                    except socket.timeout:
-                        # No more responses within the timeout window for this read
-                        pass
-                    except socket.error as e:
-                        _LOGGER.debug(f"Socket error during discovery receive: {e}")
-                        break # Stop listening on error
-
-            except Exception as ex:
-                _LOGGER.error(f"Gateway discovery failed: {ex}")
-
+            _LOGGER.debug("Sending Buspro broadcast discovery packets...")
+            # Send broadcast command to both ports
+            for port in BUSPRO_PORTS:
+                try:
+                    sock.sendto(BUSPRO_BROADCAST_DISCOVERY_COMMAND, (broadcast_address, port))
+                except socket.error as e:
+                    _LOGGER.warning(f"Error sending broadcast to port {port}: {e}")
+            
+            _LOGGER.debug(f"Listening for Buspro gateway responses for {timeout} seconds...")
+            # Listen for responses for the total timeout duration
+            end_time = asyncio.get_event_loop().time() + timeout
+            while asyncio.get_event_loop().time() < end_time:
+                try:
+                    data, addr = sock.recvfrom(1024)
+                    # Check if it's a *validated* response and not already found
+                    if addr[0] not in found_addrs and self._is_valid_buspro_response(data, addr):
+                        host = addr[0]
+                        port = addr[1] # Use the port the gateway responded on
+                        discovered.append({"host": host, "port": port})
+                        found_addrs.add(host) # Avoid adding the same gateway IP multiple times
+                        _LOGGER.info(f"Discovered and validated Buspro gateway at {host}:{port}")
+                except socket.timeout:
+                    # Expected timeout if no data received in the short interval, continue listening
+                    await asyncio.sleep(0.1) # Small sleep to prevent busy-waiting
+                except socket.error as e:
+                    # Log other socket errors but try to continue listening
+                    _LOGGER.debug(f"Socket error during discovery receive: {e}")
+                    await asyncio.sleep(0.1)
+                except Exception as e:
+                    _LOGGER.error(f"Unexpected error during discovery processing: {e}")
+                    break # Stop discovery on unexpected errors
+                    
+        _LOGGER.debug(f"Finished listening. Final discovered gateways: {discovered}")
         return discovered
 
-    def _test_connection(self) -> bool:
-        """Test connection to the Buspro gateway."""
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.settimeout(2)
-                try:
-                    # Send a command and wait for *any* response as a basic check
-                    sock.sendto(BUSPRO_READ_COMMAND, (self._host, self._port))
-                    data, addr = sock.recvfrom(1024) 
-                    _LOGGER.debug(f"Received response during connection test from {addr}: {data.hex()}")
-                    return True # If we receive anything, assume connection is okay
-                except socket.timeout:
-                    _LOGGER.warning("Timeout during connection test - no response received.")
-                    return False
-                except socket.error as e:
-                    _LOGGER.warning(f"Socket error during connection test: {e}")
-                    return False
-        except Exception as ex:
-            _LOGGER.error(f"Connection test failed with exception: {ex}")
-            return False
-
     async def async_step_discovery(self, user_input=None):
-        """Handle the device discovery step."""
+        """Discover devices on the selected gateway."""
         errors = {}
+        
+        # This step runs *after* a gateway host/port is selected/entered.
+        # We try to discover devices, implicitly testing the connection.
         
         if not self._discovered_devices:
             _LOGGER.info(f"Starting device discovery from gateway {self._host}:{self._port}")
             try:
-                # Implement actual device discovery here
-                # Send BUSPRO_DEVICE_DISCOVERY_COMMAND to the gateway
-                # Parse responses to get device info (subnet, id, channel, type)
+                # --- !!! IMPLEMENT ACTUAL DEVICE DISCOVERY LOGIC HERE !!! ---
+                # 1. Create UDP socket
+                # 2. Send BUSPRO_DEVICE_DISCOVERY_COMMAND to self._host:self._port
+                # 3. Listen for responses (multiple packets expected)
+                # 4. Parse each response to get subnet, device ID, channel, device type
+                # 5. Populate self._discovered_devices list with dicts containing:
+                #    { CONF_DEVICE_TYPE: "...", CONF_DEVICE_NAME: "...", 
+                #      CONF_DEVICE_ADDRESS: "subnet.id", CONF_DEVICE_CHANNEL: ... }
+                # 6. If communication fails (timeout, socket error), raise exceptions.ConfigEntryNotReady
                 
-                # -------- Placeholder for actual discovery --------
-                await asyncio.sleep(1) # Simulate discovery time
-                _LOGGER.warning("Using placeholder test devices - implement actual device discovery!")
+                # -------- Placeholder --------
+                # Simulate discovery: Replace this block
+                _LOGGER.warning("--- Using placeholder test devices --- Implement actual device discovery! ---")
+                await asyncio.sleep(1) # Simulate network time
+                # Simulate connection failure for testing:
+                # if self._host == "192.168.1.99": 
+                #     raise exceptions.ConfigEntryNotReady("Simulated connection failed")
                 self._discovered_devices = [
                     {
                         CONF_DEVICE_TYPE: "light",
-                        CONF_DEVICE_NAME: "Living Room Light (Test)",
-                        CONF_DEVICE_ADDRESS: "1.1.1", # Combine subnet/id
+                        CONF_DEVICE_NAME: f"Light {self._host}-1.1.1", # Example name
+                        CONF_DEVICE_ADDRESS: "1.1", # Subnet.ID format
                         CONF_DEVICE_CHANNEL: 1
                     },
                     {
                         CONF_DEVICE_TYPE: "switch",
-                        CONF_DEVICE_NAME: "Kitchen Switch (Test)",
-                        CONF_DEVICE_ADDRESS: "1.1.2", # Combine subnet/id
+                        CONF_DEVICE_NAME: f"Switch {self._host}-1.1.2",
+                        CONF_DEVICE_ADDRESS: "1.2", # Subnet.ID format
                         CONF_DEVICE_CHANNEL: 1
                     }
                 ]
-                _LOGGER.info(f"Finished device discovery. Found {len(self._discovered_devices)} devices.")
-                # -------------------------------------------------
+                _LOGGER.info(f"Finished placeholder device discovery. Found {len(self._discovered_devices)} devices.")
+                # --- End Placeholder ---
                 
+            except exceptions.ConfigEntryNotReady as e:
+                 _LOGGER.error(f"Failed to connect or discover devices from gateway {self._host}:{self._port}: {e}")
+                 # Go back to the user step to allow re-entry or re-selection
+                 errors["base"] = "cannot_connect" 
+                 # We need to show the form again, depending on whether gateways were originally found
+                 if self._discovered_gateways: # If we started with discovered gateways, show selection again
+                     gateway_options = { f"{gw['host']}:{gw['port']}": f"{gw['host']} (Port {gw['port']})" for gw in self._discovered_gateways }
+                     return self.async_show_form( step_id="user", data_schema=vol.Schema({vol.Required("gateway"): vol.In(gateway_options)}), errors=errors, description_placeholders={"found_gateways": len(self._discovered_gateways)} )
+                 else: # Otherwise, show manual entry again
+                      return self.async_show_form( step_id="user", data_schema=vol.Schema({ vol.Required(CONF_HOST): cv.string, vol.Required(CONF_PORT, default=6000): vol.In(BUSPRO_PORTS) }), errors=errors, description_placeholders={"found_gateways": 0} )
             except Exception as ex:
-                _LOGGER.error(f"Error discovering devices from gateway: {ex}")
-                errors["base"] = "discovery_failed"
-                # Show error on the discovery step form (which doesn't exist yet, 
-                # but we might add one or show it on the final step)
-                # For now, let's abort
-                return self.async_abort(reason="discovery_failed")
+                _LOGGER.exception(f"Unexpected error discovering devices from gateway {self._host}:{self._port}")
+                errors["base"] = "unknown" # Generic error for unexpected issues
+                # Abort on unknown discovery errors for now
+                return self.async_abort(reason="discovery_failed_unknown")
 
+        # --- Process user selection of devices --- 
         if user_input is not None:
-            selected_devices = user_input.get("selected_devices", [])
-            _LOGGER.info(f"User selected devices: {selected_devices}")
-            for device_id in selected_devices:
-                # Find the selected device from the discovered list
-                device = next((d for d in self._discovered_devices if d[CONF_DEVICE_ADDRESS] == device_id), None)
+            selected_device_addresses = user_input.get("selected_devices", [])
+            _LOGGER.info(f"User selected device addresses: {selected_device_addresses}")
+            self._devices = [] # Reset list before adding selected
+            for device_addr in selected_device_addresses:
+                device = next((d for d in self._discovered_devices if d[CONF_DEVICE_ADDRESS] == device_addr), None)
                 if device:
                     self._devices.append(device)
                 else:
-                    _LOGGER.warning(f"Selected device ID {device_id} not found in discovered list.")
+                    _LOGGER.warning(f"Selected device address {device_addr} not found in discovered list.")
             
-            _LOGGER.info(f"Creating config entry with {len(self._devices)} devices.")
-            return self.async_create_entry(
-                title=f"Buspro Gateway ({self._host})",
-                data={
-                    CONF_HOST: self._host,
-                    CONF_PORT: self._port,
-                    CONF_DEVICES: self._devices
-                }
-            )
+            if not self._devices:
+                 _LOGGER.warning("User submitted discovery step without selecting any devices.")
+                 errors["base"] = "no_devices_selected" # Add error for this case
+                 # Re-show the discovery form below
+            else:
+                _LOGGER.info(f"Creating config entry with {len(self._devices)} selected devices.")
+                return self.async_create_entry(
+                    title=f"HDL Buspro ({self._host})", # Use a more descriptive title
+                    data={
+                        CONF_HOST: self._host,
+                        CONF_PORT: self._port,
+                        CONF_DEVICES: self._devices # Save the list of selected device dicts
+                    }
+                )
 
+        # --- Show device selection form --- 
         if not self._discovered_devices:
-            _LOGGER.warning("No devices found after discovery.")
+            # If discovery (placeholder or real) resulted in zero devices
+            _LOGGER.warning(f"No devices found on gateway {self._host}:{self._port}. Aborting.")
             return self.async_abort(reason="no_devices_found")
 
         # Create options for the multi-select form
         device_options = {
-            # Use device address (subnet.id) as the key
-            device[CONF_DEVICE_ADDRESS]: f"{device[CONF_DEVICE_NAME]} (Type: {device[CONF_DEVICE_TYPE]}, Addr: {device[CONF_DEVICE_ADDRESS]}, Ch: {device[CONF_DEVICE_CHANNEL]})"
+            device[CONF_DEVICE_ADDRESS]: f"{device[CONF_DEVICE_NAME]} (Type: {device[CONF_DEVICE_TYPE]}, Addr: {device[CONF_DEVICE_ADDRESS]}, Ch: {device.get(CONF_DEVICE_CHANNEL, 'N/A')})"
             for device in self._discovered_devices
         }
 
         return self.async_show_form(
             step_id="discovery",
             data_schema=vol.Schema({
-                # Ensure selected_devices is required if there are options
-                vol.Required("selected_devices") if device_options else vol.Optional("selected_devices")
+                # Use Optional if you want to allow adding zero devices, Required otherwise
+                vol.Optional("selected_devices", default=list(device_options.keys())) # Pre-select all devices
                 : cv.multi_select(device_options)
             }),
-            errors=errors,
+            errors=errors, # Show errors like 'no_devices_selected'
             description_placeholders={
                 "gateway_host": self._host,
                 "gateway_port": self._port,
