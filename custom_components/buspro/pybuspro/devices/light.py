@@ -2,6 +2,7 @@
 from .device import Device
 from ..helpers.enums import *
 from ..helpers.generics import Generics
+import asyncio
 
 
 class Light(Device):
@@ -14,6 +15,7 @@ class Light(Device):
         self._channel = channel_number
         self._brightness = 0
         self._previous_brightness = None
+        self._command_lock = asyncio.Lock()
         self.register_telegram_received_cb(self._telegram_received_cb)
         self._call_read_current_status_of_channels(run_from_init=True)
 
@@ -40,17 +42,17 @@ class Light(Device):
 
     async def set_on(self, running_time_seconds=0):
         intensity = 100
-        await self._set(intensity, running_time_seconds)
+        return await self._set(intensity, running_time_seconds)
 
     async def set_off(self, running_time_seconds=0):
         intensity = 0
-        await self._set(intensity, running_time_seconds)
+        return await self._set(intensity, running_time_seconds)
 
     async def set_brightness(self, intensity, running_time_seconds=0):
-        await self._set(intensity, running_time_seconds)
+        return await self._set(intensity, running_time_seconds)
 
     async def read_status(self):
-        raise NotImplementedError
+        await self._call_read_current_status_of_channels()
 
     @property
     def device_identifier(self):
@@ -70,25 +72,34 @@ class Light(Device):
 
     @property
     def is_on(self):
-        if self._brightness == 0:
-            return False
-        else:
-            return True
+        return self._brightness > 0
 
     async def _set(self, intensity, running_time_seconds):
-        self._brightness = intensity
-        self._set_previous_brightness(self._brightness)
+        async with self._command_lock:
+            try:
+                # Update state immediately
+                self._brightness = intensity
+                self._set_previous_brightness(self._brightness)
 
-        generics = Generics()
-        (minutes, seconds) = generics.calculate_minutes_seconds(running_time_seconds)
+                # Prepare command
+                generics = Generics()
+                (minutes, seconds) = generics.calculate_minutes_seconds(running_time_seconds)
 
-        scc = _SingleChannelControl(self._buspro)
-        scc.subnet_id, scc.device_id = self._device_address
-        scc.channel_number = self._channel
-        scc.channel_level = intensity
-        scc.running_time_minutes = minutes
-        scc.running_time_seconds = seconds
-        await scc.send()
+                scc = _SingleChannelControl(self._buspro)
+                scc.subnet_id, scc.device_id = self._device_address
+                scc.channel_number = self._channel
+                scc.channel_level = intensity
+                scc.running_time_minutes = minutes
+                scc.running_time_seconds = seconds
+
+                # Send command with timeout
+                async with asyncio.timeout(0.5):  # 500ms timeout
+                    await scc.send()
+                    return True
+            except asyncio.TimeoutError:
+                return False
+            except Exception:
+                return False
 
     def _set_previous_brightness(self, brightness):
         if self.supports_brightness and brightness > 0:

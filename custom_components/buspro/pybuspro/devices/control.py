@@ -1,5 +1,6 @@
 from ..core.telegram import Telegram
 from ..helpers.enums import OperateCode
+import asyncio
 
 
 class _Control:
@@ -7,10 +8,10 @@ class _Control:
         self._buspro = buspro
         self.subnet_id = None
         self.device_id = None
+        self._send_lock = asyncio.Lock()
 
     @staticmethod
     def build_telegram_from_control(control):
-
         if control is None:
             return None
 
@@ -75,17 +76,20 @@ class _Control:
 
     async def send(self):
         telegram = self.telegram
-
-        # if telegram.target_address[1] == 100:
-        #     print("==== {}".format(str(telegram)))
-
-        await self._buspro.network_interface.send_telegram(telegram)
+        async with self._send_lock:
+            try:
+                async with asyncio.timeout(0.3):  # 300ms timeout
+                    await self._buspro.network_interface.send_telegram(telegram)
+                    return True
+            except asyncio.TimeoutError:
+                return False
+            except Exception:
+                return False
 
 
 class _GenericControl(_Control):
     def __init__(self, buspro):
         super().__init__(buspro)
-
         self.payload = None
         self.operate_code = None
 
@@ -93,7 +97,6 @@ class _GenericControl(_Control):
 class _SingleChannelControl(_Control):
     def __init__(self, buspro):
         super().__init__(buspro)
-
         self.channel_number = None
         self.channel_level = None
         self.running_time_minutes = None
@@ -103,7 +106,6 @@ class _SingleChannelControl(_Control):
 class _SceneControl(_Control):
     def __init__(self, buspro):
         super().__init__(buspro)
-
         self.area_number = None
         self.scene_number = None
 
@@ -117,7 +119,6 @@ class _ReadStatusOfChannels(_Control):
 class _UniversalSwitch(_Control):
     def __init__(self, buspro):
         super().__init__(buspro)
-
         self.switch_number = None
         self.switch_status = None
 
@@ -125,7 +126,6 @@ class _UniversalSwitch(_Control):
 class _ReadStatusOfUniversalSwitch(_Control):
     def __init__(self, buspro):
         super().__init__(buspro)
-
         self.switch_number = None
 
 
@@ -150,7 +150,6 @@ class _ReadFloorHeatingStatus(_Control):
 class _ControlFloorHeatingStatus(_Control):
     def __init__(self, buspro):
         super().__init__(buspro)
-
         self.temperature_type = None
         self.status = None
         self.mode = None
@@ -163,5 +162,4 @@ class _ControlFloorHeatingStatus(_Control):
 class _ReadDryContactStatus(_Control):
     def __init__(self, buspro):
         super().__init__(buspro)
-
         self.switch_number = None
