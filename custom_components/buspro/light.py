@@ -115,6 +115,10 @@ class BusproLight(LightEntity):
         """Fetch new state data for this light."""
         await self.async_read_status()
 
+    #async def async_update(self):
+     #   """Fetch new state data for this light."""
+      #  await self.async_read_status()
+
     @property
     def name(self):
         """Return the display name of this light."""
@@ -137,26 +141,32 @@ class BusproLight(LightEntity):
         return self._device.is_on
 
     async def async_turn_on(self, **kwargs):
-        """Instruct the light to turn on with optimistic update."""
-        brightness = int(kwargs.get(ATTR_BRIGHTNESS, 255) / 255 * 100
+        """Instruct the light to turn on."""
+        brightness = int(kwargs.get(ATTR_BRIGHTNESS, 255) / 255 * 100)
 
         if not self.is_on and self._device.previous_brightness is not None and brightness == 100:
             brightness = self._device.previous_brightness
 
-        # Optimistic update
+        # Update state immediately for better responsiveness
         self._device.is_on = True
         self._device.current_brightness = brightness
         self.async_write_ha_state()
 
-        await self._device.set_brightness(brightness, self._running_time)
+        # Send the command in the background
+        self._hass.async_create_task(
+            self._device.set_brightness(brightness, self._running_time)
+        )
 
     async def async_turn_off(self, **kwargs):
-        """Instruct the light to turn off with optimistic update."""
-        # Optimistic update
+        """Instruct the light to turn off."""
+        # Update state immediately for better responsiveness
         self._device.is_on = False
         self.async_write_ha_state()
 
-        await self._device.set_off(self._running_time)
+        # Send the command in the background
+        self._hass.async_create_task(
+            self._device.set_off(self._running_time)
+        )
 
     @property
     def unique_id(self):
