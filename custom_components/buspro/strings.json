@@ -2,11 +2,12 @@
   "config": {
     "step": {
       "user": {
-        "title": "Buspro gateway configuration",
-        "description": "Enter IP address and port number of the gateway.",
+        "title": "Buspro Gateway Configuration",
+        "description": "Found {found_gateways} Buspro gateways on your network. Please select one, or enter details manually if your gateway was not found.",
         "data": {
-          "host": "Host IP address",
-          "port": "Port number"
+          "gateway": "Select Gateway",
+          "host": "Host IP address (if not auto-discovered)",
+          "port": "Port number (6000 or 6001)"
         }
       },
       "discovery": {
@@ -20,13 +21,15 @@
     "error": {
       "cannot_connect": "Failed to connect to the gateway. Please check the host and port.",
       "unknown": "An unexpected error occurred.",
-      "invalid_device": "Invalid device configuration",
-      "duplicate_device": "Device already configured",
       "discovery_failed": "Failed to discover devices from the gateway"
     },
     "abort": {
       "already_configured": "Device is already configured",
-      "no_devices_found": "No devices were found on the network"
+      "no_devices_found": "No devices were found on the network",
+      "no_gateways": "No Buspro gateways were found on the network"
+    },
+    "progress": {
+      "discovering": "Scanning network for Buspro gateways..."
     }
   }
 }
