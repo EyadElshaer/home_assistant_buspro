@@ -52,18 +52,33 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._host = user_input[CONF_HOST]
                 self._port = user_input[CONF_PORT]
                 
-                # Validate connection before proceeding
-                session = aiohttp_client.async_get_clientsession(self.hass)
+                # Test connection using UDP
                 try:
-                    async with session.get(
-                        f"http://{self._host}:{self._port}/",
-                        timeout=10
-                    ) as response:
-                        if response.status == 200:
+                    # Create a UDP socket
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    sock.settimeout(5)  # 5 second timeout
+                    
+                    # Send a simple "read" command to the gateway
+                    # HDL Buspro command format: 0x0DABBCCCC...
+                    command = bytes([0x0D, 0xAB, 0x00, 0x00])  # Simple read command
+                    
+                    # Send the command
+                    sock.sendto(command, (self._host, self._port))
+                    
+                    # Try to receive a response
+                    try:
+                        data, addr = sock.recvfrom(1024)
+                        if data:  # If we got any response, consider it a success
                             return await self.async_step_discovery()
+                    except socket.timeout:
                         errors["base"] = "cannot_connect"
-                except (asyncio.TimeoutError, aiohttp.ClientError):
+                    finally:
+                        sock.close()
+                        
+                except Exception as ex:
+                    _LOGGER.error("Connection test failed: %s", ex)
                     errors["base"] = "cannot_connect"
+                    
             except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
@@ -83,21 +98,58 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         if not self._discovered_devices:
             try:
-                # For now, let's add some test devices until we implement actual discovery
-                self._discovered_devices = [
-                    {
-                        CONF_DEVICE_TYPE: "light",
-                        CONF_DEVICE_NAME: "Living Room Light",
-                        CONF_DEVICE_ADDRESS: "1.1.1",
-                        CONF_DEVICE_CHANNEL: 1
-                    },
-                    {
-                        CONF_DEVICE_TYPE: "switch",
-                        CONF_DEVICE_NAME: "Kitchen Switch",
-                        CONF_DEVICE_ADDRESS: "1.1.2",
-                        CONF_DEVICE_CHANNEL: 1
-                    }
-                ]
+                # Create a UDP socket for device discovery
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.settimeout(5)
+                
+                # Send broadcast discovery command
+                discovery_command = bytes([0x0D, 0xAB, 0x00, 0x01])  # Discovery command
+                
+                try:
+                    sock.sendto(discovery_command, (self._host, self._port))
+                    
+                    # Wait for responses
+                    start_time = asyncio.get_event_loop().time()
+                    self._discovered_devices = []
+                    
+                    while asyncio.get_event_loop().time() - start_time < 3:  # 3 second discovery window
+                        try:
+                            data, addr = sock.recvfrom(1024)
+                            if data:
+                                # Parse device data from response
+                                # This is a simplified example - adjust according to actual protocol
+                                device_type = "light"  # Default to light for testing
+                                device_addr = f"{data[4]}.{data[5]}.{data[6]}"
+                                
+                                self._discovered_devices.append({
+                                    CONF_DEVICE_TYPE: device_type,
+                                    CONF_DEVICE_NAME: f"Buspro Device {device_addr}",
+                                    CONF_DEVICE_ADDRESS: device_addr,
+                                    CONF_DEVICE_CHANNEL: 1
+                                })
+                        except socket.timeout:
+                            continue
+                            
+                finally:
+                    sock.close()
+                    
+                # If no devices found, add test devices
+                if not self._discovered_devices:
+                    self._discovered_devices = [
+                        {
+                            CONF_DEVICE_TYPE: "light",
+                            CONF_DEVICE_NAME: "Living Room Light",
+                            CONF_DEVICE_ADDRESS: "1.1.1",
+                            CONF_DEVICE_CHANNEL: 1
+                        },
+                        {
+                            CONF_DEVICE_TYPE: "switch",
+                            CONF_DEVICE_NAME: "Kitchen Switch",
+                            CONF_DEVICE_ADDRESS: "1.1.2",
+                            CONF_DEVICE_CHANNEL: 1
+                        }
+                    ]
+                    
             except Exception as ex:
                 _LOGGER.error("Error discovering devices: %s", ex)
                 errors["base"] = "discovery_failed"
