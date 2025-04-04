@@ -147,26 +147,15 @@ class BusproLight(LightEntity):
         if not self.is_on and self._device.previous_brightness is not None and brightness == 100:
             brightness = self._device.previous_brightness
 
-        # Update state immediately for better responsiveness
-        self._device.is_on = True
-        self._device.current_brightness = brightness
+        # Send the command and update state
+        await self._device.set_brightness(brightness, self._running_time)
         self.async_write_ha_state()
-
-        # Send the command in the background
-        self._hass.async_create_task(
-            self._device.set_brightness(brightness, self._running_time)
-        )
 
     async def async_turn_off(self, **kwargs):
         """Instruct the light to turn off."""
-        # Update state immediately for better responsiveness
-        self._device.is_on = False
+        # Send the command and update state
+        await self._device.set_off(self._running_time)
         self.async_write_ha_state()
-
-        # Send the command in the background
-        self._hass.async_create_task(
-            self._device.set_off(self._running_time)
-        )
 
     @property
     def unique_id(self):
