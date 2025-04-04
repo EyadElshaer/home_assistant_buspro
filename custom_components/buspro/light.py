@@ -144,62 +144,69 @@ class BusproLight(LightEntity):
 
     async def async_turn_on(self, **kwargs):
         """Instruct the light to turn on."""
-        # Store the target brightness
         if ATTR_BRIGHTNESS in kwargs:
             target_brightness = int(kwargs[ATTR_BRIGHTNESS] / 255 * 100)
         else:
             target_brightness = self._device.previous_brightness if self._device.previous_brightness is not None and not self.is_on else 100
 
+        # Update state optimistically
+        self._device._brightness = target_brightness
+        self.async_write_ha_state()
+
         # Send command with timeout
         async def send_command():
             try:
-                async with asyncio.timeout(2.0):  # 2 second timeout
+                async with asyncio.timeout(0.5):  # 500ms timeout for the command
                     if ATTR_BRIGHTNESS in kwargs:
-                        await self._device.set_brightness(target_brightness, self._running_time)
+                        success = await self._device.set_brightness(target_brightness, 0)  # Set running time to 0 for immediate response
                     else:
                         if self._device.previous_brightness is not None and not self.is_on:
-                            await self._device.set_brightness(target_brightness, self._running_time)
+                            success = await self._device.set_brightness(target_brightness, 0)
                         else:
-                            await self._device.set_on(self._running_time)
-                return True
+                            success = await self._device.set_on(0)
+                    
+                    if not success:
+                        _LOGGER.warning(f"Failed to send command to light {self.name}")
+                        # Schedule a state refresh
+                        self._hass.async_create_task(self.async_read_status())
             except asyncio.TimeoutError:
                 _LOGGER.warning(f"Command timeout for light {self.name}")
-                return False
+                # Schedule a state refresh
+                self._hass.async_create_task(self.async_read_status())
             except Exception as e:
                 _LOGGER.error(f"Error sending command to light {self.name}: {str(e)}")
-                return False
+                # Schedule a state refresh
+                self._hass.async_create_task(self.async_read_status())
 
-        # Acquire lock to prevent multiple simultaneous commands
-        async with self._command_lock:
-            # Update state optimistically
-            self._device._brightness = target_brightness
-            self.async_write_ha_state()
-            
-            # Send command in background
-            self._hass.async_create_task(send_command())
+        # Send command in background
+        self._hass.async_create_task(send_command())
 
     async def async_turn_off(self, **kwargs):
         """Instruct the light to turn off."""
+        # Update state optimistically
+        self._device._brightness = 0
+        self.async_write_ha_state()
+
+        # Send command with timeout
         async def send_command():
             try:
-                async with asyncio.timeout(2.0):  # 2 second timeout
-                    await self._device.set_off(self._running_time)
-                return True
+                async with asyncio.timeout(0.5):  # 500ms timeout for the command
+                    success = await self._device.set_off(0)  # Set running time to 0 for immediate response
+                    if not success:
+                        _LOGGER.warning(f"Failed to send command to light {self.name}")
+                        # Schedule a state refresh
+                        self._hass.async_create_task(self.async_read_status())
             except asyncio.TimeoutError:
                 _LOGGER.warning(f"Command timeout for light {self.name}")
-                return False
+                # Schedule a state refresh
+                self._hass.async_create_task(self.async_read_status())
             except Exception as e:
                 _LOGGER.error(f"Error sending command to light {self.name}: {str(e)}")
-                return False
+                # Schedule a state refresh
+                self._hass.async_create_task(self.async_read_status())
 
-        # Acquire lock to prevent multiple simultaneous commands
-        async with self._command_lock:
-            # Update state optimistically
-            self._device._brightness = 0
-            self.async_write_ha_state()
-            
-            # Send command in background
-            self._hass.async_create_task(send_command())
+        # Send command in background
+        self._hass.async_create_task(send_command())
 
     @property
     def unique_id(self):
