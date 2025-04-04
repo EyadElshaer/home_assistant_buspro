@@ -8,10 +8,25 @@
           "host": "Host IP address",
           "port": "Port number"
         }
+      },
+      "devices": {
+        "title": "Add Buspro Devices",
+        "description": "Add your Buspro devices to Home Assistant.",
+        "data": {
+          "device_type": "Device Type",
+          "device_name": "Device Name",
+          "device_address": "Device Address",
+          "device_channel": "Device Channel"
+        }
       }
     },
     "error": {
-      "unknown": "An error occured."
+      "unknown": "An error occurred.",
+      "invalid_device": "Invalid device configuration",
+      "duplicate_device": "Device already configured"
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
     }
   }
 }
