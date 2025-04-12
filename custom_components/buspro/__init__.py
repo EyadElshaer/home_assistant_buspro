@@ -6,6 +6,7 @@ https://home-assistant.io/...
 """
 
 import logging
+import asyncio
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -19,6 +20,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.typing import ConfigType
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +43,9 @@ SERVICE_BUSPRO_ATTR_PAYLOAD = "payload"
 SERVICE_BUSPRO_ATTR_SCENE_ADDRESS = "scene_address"
 SERVICE_BUSPRO_ATTR_SWITCH_NUMBER = "switch_number"
 SERVICE_BUSPRO_ATTR_STATUS = "status"
+
+# List of platforms to setup when the integration is loaded
+PLATFORMS = ["light", "cover", "climate", "switch", "fan", "sensor"]
 
 """{ "address": [1,74], "scene_address": [3,5] }"""
 SERVICE_BUSPRO_ACTIVATE_SCENE_SCHEMA = vol.Schema({
@@ -70,8 +75,8 @@ CONFIG_SCHEMA = vol.Schema({
     })
 }, extra=vol.ALLOW_EXTRA)
 
-async def async_setup(hass: HomeAssistant, config: dict):
-    """Setup the Buspro component. """
+async def async_setup(hass: HomeAssistant, config: ConfigType):
+    """Setup the Buspro component from yaml configuration."""
     if DOMAIN not in config:
         return True
 
@@ -86,18 +91,51 @@ async def async_setup(hass: HomeAssistant, config: dict):
     return True
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Setup the Buspro component. """
+    """Setup the Buspro component from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
     host = config_entry.data.get(CONF_HOST, "")
-    port = config_entry.data.get(CONF_PORT, 1)
+    port = config_entry.data.get(CONF_PORT, 6000)
 
-    hass.data[DOMAIN] = BusproModule(hass, host, port)
-    await hass.data[DOMAIN].start()
+    # Initialize the HDL Buspro module
+    buspro_module = BusproModule(hass, host, port)
+    await buspro_module.start()
 
-    hass.data[DOMAIN].register_services()
+    # Store the module in the hass data
+    hass.data[DOMAIN][config_entry.entry_id] = {
+        "module": buspro_module,
+        "devices": config_entry.data.get("devices", {})
+    }
+
+    # Register services
+    buspro_module.register_services()
+
+    # Forward the setup to each platform
+    for platform in PLATFORMS:
+        hass.async_create_task(
+            hass.config_entries.async_forward_entry_setup(config_entry, platform)
+        )
 
     return True
+
+async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    # Unload platforms
+    unload_ok = all(
+        await asyncio.gather(
+            *[
+                hass.config_entries.async_forward_entry_unload(config_entry, platform)
+                for platform in PLATFORMS
+            ]
+        )
+    )
+
+    # Stop Buspro module
+    if unload_ok:
+        buspro_data = hass.data[DOMAIN].pop(config_entry.entry_id)
+        await buspro_data["module"].stop(None)
+
+    return unload_ok
 
 class BusproModule:
     """Representation of Buspro Object."""
